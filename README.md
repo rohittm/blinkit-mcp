@@ -208,3 +208,9 @@ Licensed under the [MIT License](LICENSE).
 ## ⚠️ Disclaimer
 
 This project is an **experimental** proof of concept and is **not affiliated, associated, authorized, endorsed by, or in any way officially connected with Blinkit (Grofers India Private Limited)**, or any of its subsidiaries or its affiliates. The official Blinkit website can be found at [blinkit.com](https://blinkit.com).
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=hereisSwapnil/blinkit-mcp&type=date&legend=top-left)](https://www.star-history.com/#hereisSwapnil/blinkit-mcp&type=date&legend=top-left)
+
+---
