@@ -110,6 +110,23 @@ class CheckoutService(BaseService):
                     await generate_qr_btn.first.click()
                     print("Generated QR code. Please show the QR code to the customer.")
                     await self.page.wait_for_timeout(2000)  # Wait for QR to load
+
+                    try:
+                        qr_img_locator = frame.locator(
+                            "div[class*='QrImageWrapper'] img"
+                        )
+                        await qr_img_locator.wait_for(state="visible", timeout=5000)
+                        qr_src = await qr_img_locator.first.get_attribute("src")
+                        if qr_src and qr_src.startswith("data:image/"):
+                            base64_data = qr_src.split(",")[1]
+                            return {
+                                "status": "UPI QR Code generated successfully. Show it to the customer.",
+                                "qr_base64": base64_data,
+                                "format": qr_src.split(";")[0].split("/")[1],
+                            }
+                    except Exception as qr_e:
+                        print(f"Failed to extract QR Code image: {qr_e}")
+
                     return (
                         "UPI QR Code generated successfully. Show it to the customer."
                     )

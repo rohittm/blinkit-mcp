@@ -1,4 +1,4 @@
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 from src.auth import BlinkitAuth
 from src.order.blinkit_order import BlinkitOrder
 import io
@@ -258,13 +258,47 @@ async def proceed_to_pay() -> str:
 
 
 @mcp.tool()
-async def select_payment_method() -> str:
+async def select_payment_method():
     """Select a payment method. Automatically chooses Cash on Delivery if available. If not, it opens UPI and generates a QR code to be scanned by the customer."""
     await ctx.ensure_started()
     f = io.StringIO()
     with redirect_stdout(f):
         res = await ctx.order.select_payment_method()
-        if res:
+        if isinstance(res, dict):
+            status = res.get("status", "")
+            print(status)
+            import base64
+            import os
+            import sys
+            import subprocess
+
+            b64_data = res.get("qr_base64")
+            img_format = res.get("format", "png")
+
+            # Save the image locally and open it for the user
+            qr_path = os.path.abspath(f"payment_qr.{img_format}")
+            try:
+                with open(qr_path, "wb") as f_img:
+                    f_img.write(base64.b64decode(b64_data))
+
+                # Automatically open the image
+                if sys.platform == "darwin":
+                    subprocess.run(["open", qr_path])
+                elif sys.platform.startswith("linux"):
+                    subprocess.run(["xdg-open", qr_path])
+                elif sys.platform == "win32":
+                    os.startfile(qr_path)
+            except Exception as e:
+                print(f"Failed to save/open QR code image: {e}")
+
+            img = Image(
+                data=base64.b64decode(b64_data),
+                format=img_format,
+            )
+
+            instruction = f"\n\n[INSTRUCTION TO AI: The QR Code has been saved to '{qr_path}' and automatically opened on the user's screen. Tell the user to check the newly opened image window to scan the QR code and complete their payment. DO NOT try to render the image in your response via markdown.]\n"
+            return [f.getvalue() + instruction, img]
+        elif res:
             print(res)
     return f.getvalue()
 
