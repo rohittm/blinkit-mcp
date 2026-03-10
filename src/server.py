@@ -258,28 +258,14 @@ async def proceed_to_pay() -> str:
 
 
 @mcp.tool()
-async def get_upi_ids() -> str:
-    """Get list of available/saved UPI IDs from the payment page."""
+async def select_payment_method() -> str:
+    """Select a payment method. Automatically chooses Cash on Delivery if available. If not, it opens UPI and generates a QR code to be scanned by the customer."""
     await ctx.ensure_started()
     f = io.StringIO()
     with redirect_stdout(f):
-        ids = await ctx.order.get_upi_ids()
-        if not ids:
-            print("No UPI IDs found.")
-        else:
-            print("Available UPI IDs:")
-            for i in ids:
-                print(f"- {i}")
-    return f.getvalue()
-
-
-@mcp.tool()
-async def select_upi_id(upi_id: str) -> str:
-    """Select a specific UPI ID (e.g. 'foo@ybl') or enter a new one."""
-    await ctx.ensure_started()
-    f = io.StringIO()
-    with redirect_stdout(f):
-        await ctx.order.select_upi_id(upi_id)
+        res = await ctx.order.select_payment_method()
+        if res:
+            print(res)
     return f.getvalue()
 
 
