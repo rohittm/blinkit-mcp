@@ -1,7 +1,43 @@
+import urllib.parse
+
 from .base import BaseService
 
 
 class SearchService(BaseService):
+    async def _dismiss_overlays(self):
+        """Dismiss any popups, modals, or overlays that may block interaction."""
+        try:
+            # Close any visible close/dismiss buttons
+            for selector in [
+                "button[aria-label='close']",
+                "div[class*='Modal'] button",
+                "div[class*='Overlay'] button",
+                "button:has-text('✕')",
+                "button:has-text('×')",
+            ]:
+                if await self.page.is_visible(selector):
+                    await self.page.click(selector, timeout=2000)
+                    await self.page.wait_for_timeout(300)
+        except Exception:
+            pass
+
+    async def _try_click_search(self) -> bool:
+        """Try to activate the search bar via click. Returns True if successful."""
+        selectors = [
+            "a[href='/s/']",
+            "div[class*='SearchBar__PlaceholderContainer']",
+            "input[placeholder*='Search']",
+            "text='Search'",
+        ]
+        for selector in selectors:
+            try:
+                if await self.page.is_visible(selector):
+                    await self.page.click(selector, timeout=5000)
+                    return True
+            except Exception:
+                continue
+        return False
+
     async def search_product(self, product_name: str):
         """Searches for a product using the search bar."""
         print(f"Searching for item: {product_name}...")
@@ -11,33 +47,36 @@ class SearchService(BaseService):
             )
 
         try:
-            # 1. Activate Search
-            if await self.page.is_visible("a[href='/s/']"):
-                await self.page.click("a[href='/s/']")
-            elif await self.page.is_visible(
-                "div[class*='SearchBar__PlaceholderContainer']"
-            ):
-                await self.page.click("div[class*='SearchBar__PlaceholderContainer']")
-            else:
-                # Fallback: type directly if input is visible, or click generic search text
-                if await self.page.is_visible("input[placeholder*='Search']"):
-                    await self.page.click("input[placeholder*='Search']")
-                else:
-                    await self.page.click("text='Search'", timeout=3000)
+            # Dismiss any overlays that might block the search bar
+            await self._dismiss_overlays()
 
-            # 2. Type and Submit
-            search_input = await self.page.wait_for_selector(
-                "input[placeholder*='Search'], input[type='text']",
-                state="visible",
-                timeout=30000,
-            )
-            await search_input.fill(product_name)
-            await self.page.keyboard.press("Enter")
+            # Strategy 1: Try clicking the search bar and typing
+            search_succeeded = False
+            try:
+                if await self._try_click_search():
+                    search_input = await self.page.wait_for_selector(
+                        "input[placeholder*='Search'], input[type='text']",
+                        state="visible",
+                        timeout=5000,
+                    )
+                    # Triple-click to select all existing text, then fill
+                    await search_input.click(click_count=3)
+                    await search_input.fill(product_name)
+                    await self.page.keyboard.press("Enter")
+                    search_succeeded = True
+            except Exception as e:
+                print(f"Search bar click/type failed: {e}. Falling back to URL navigation.")
 
-            # 3. Wait for results
+            # Strategy 2: Fallback — navigate directly to search URL
+            if not search_succeeded:
+                encoded_query = urllib.parse.quote(product_name)
+                search_url = f"https://blinkit.com/s/?q={encoded_query}"
+                print(f"Navigating directly to search URL: {search_url}")
+                await self.page.goto(search_url, wait_until="domcontentloaded")
+
+            # Wait for results
             print("Waiting for results...")
             try:
-                # Wait for product cards
                 await self.page.wait_for_selector(
                     "div[role='button']:has-text('ADD')", timeout=30000
                 )

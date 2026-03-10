@@ -2,6 +2,7 @@ from mcp.server.fastmcp import FastMCP
 from src.auth import BlinkitAuth
 from src.order.blinkit_order import BlinkitOrder
 import io
+import asyncio
 from contextlib import redirect_stdout
 from dotenv import load_dotenv
 import os
@@ -18,6 +19,34 @@ if SERVE_SSE:
 else:
     mcp = FastMCP("blinkit-mcp")
 
+# Marker files for background Playwright install status
+_INSTALL_MARKER = os.path.expanduser("~/.blinkit_mcp/.playwright_installing")
+_INSTALL_DONE_MARKER = os.path.expanduser("~/.blinkit_mcp/.playwright_ready")
+
+
+def _is_playwright_installing() -> bool:
+    """Check if the background Playwright install is still running."""
+    return os.path.exists(_INSTALL_MARKER)
+
+
+async def _wait_for_playwright_install(timeout: float = 120.0) -> bool:
+    """Wait for the background Playwright install to finish. Returns True if ready."""
+    if not _is_playwright_installing():
+        return True
+
+    print("Playwright browser is being installed in the background. Waiting...")
+    elapsed = 0.0
+    while _is_playwright_installing() and elapsed < timeout:
+        await asyncio.sleep(1.0)
+        elapsed += 1.0
+
+    if _is_playwright_installing():
+        print(f"Playwright install still running after {timeout}s.")
+        return False
+
+    print("Playwright browser install finished.")
+    return True
+
 
 # Global Context to maintain session
 class BlinkitContext:
@@ -31,6 +60,15 @@ class BlinkitContext:
         self.order = None
 
     async def ensure_started(self):
+        # If Playwright browser is being installed in the background, wait for it
+        if _is_playwright_installing():
+            ready = await _wait_for_playwright_install(timeout=120.0)
+            if not ready:
+                raise RuntimeError(
+                    "Playwright Firefox browser is still being downloaded. "
+                    "Please wait a moment and try again."
+                )
+
         # Check if browser/page is active. If page is closed, restart.
         restart = False
         if not self.auth.page:
@@ -48,7 +86,23 @@ class BlinkitContext:
 
         if restart:
             print("Browser not active or closed. Launching...")
-            await self.auth.start_browser()
+            try:
+                await self.auth.start_browser()
+            except Exception as e:
+                error_msg = str(e)
+                if "Executable doesn't exist" in error_msg:
+                    # Playwright browser binary is missing — may still be installing
+                    if _is_playwright_installing():
+                        raise RuntimeError(
+                            "Playwright Firefox is still being downloaded in the background. "
+                            "Please wait a moment and try again."
+                        )
+                    else:
+                        raise RuntimeError(
+                            "Playwright Firefox browser is not installed. "
+                            "Please run: playwright install firefox"
+                        )
+                raise
             self.order = BlinkitOrder(self.auth.page)
         elif self.order is None and self.auth.page:
             # Browser is active but order object missing (e.g. from partial failure or manual restart)
@@ -71,7 +125,7 @@ async def check_login() -> str:
 
 @mcp.tool()
 async def set_location(location_name: str) -> str:
-    """Manually set the delivery location via search. Use this if 'Detect my location' sets the wrong place."""
+    """Manually set the delivery location via search. Pass 'detect' to click 'Detect my location'. The flow should be: login -> set_location('detect') -> add items -> check_cart -> if address not same, use get_addresses and select_address. Do not use this tool to fix address after adding items."""
     await ctx.ensure_started()
     await ctx.order.set_location(location_name)
     return f"Location search initiated for {location_name}. Please check result."
@@ -148,7 +202,7 @@ async def remove_from_cart(item_id: str, quantity: int = 1) -> str:
 
 @mcp.tool()
 async def check_cart() -> str:
-    """Check the current cart products and total value."""
+    """Check the current cart products, total value, and the delivery address. If the delivery address is not the intended one, use get_addresses and select_address to change it."""
     await ctx.ensure_started()
     f = io.StringIO()
     with redirect_stdout(f):
@@ -159,7 +213,7 @@ async def check_cart() -> str:
 
 @mcp.tool()
 async def checkout() -> str:
-    """Proceed to checkout (clicks Proceed/Checkout button). Triggers address selection if needed."""
+    """Proceed to checkout (clicks Proceed / Pay button). DO NOT call this if you need to change the delivery address. To change address, use get_addresses and select_address BEFORE checkout! Do not use set_location to fix address here."""
     await ctx.ensure_started()
     f = io.StringIO()
     with redirect_stdout(f):
@@ -169,11 +223,13 @@ async def checkout() -> str:
 
 @mcp.tool()
 async def get_addresses() -> str:
-    """Get the list of saved addresses if the address selection modal is open."""
+    """Get the list of saved addresses. Use this and select_address to change address on the cart page, if the address in check_cart is incorrect."""
     await ctx.ensure_started()
     addresses = await ctx.order.get_saved_addresses()
     if not addresses:
-        return "No addresses found or Address Modal is not open. Try 'checkout' first."
+        return (
+            "No addresses found or Address Modal is not open. Try to open kart first."
+        )
 
     out = "Saved Addresses:\n"
     for addr in addresses:
@@ -183,7 +239,7 @@ async def get_addresses() -> str:
 
 @mcp.tool()
 async def select_address(index: int) -> str:
-    """Select a delivery address by its index."""
+    """Select a delivery address by its index. Only use this BEFORE checkout."""
     await ctx.ensure_started()
     f = io.StringIO()
     with redirect_stdout(f):
