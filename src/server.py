@@ -259,7 +259,7 @@ async def proceed_to_pay() -> str:
 
 @mcp.tool()
 async def select_payment_method():
-    """Select a payment method. Automatically chooses Cash on Delivery if available. If not, it opens UPI and generates a QR code to be scanned by the customer."""
+    """Select a payment method. Tries Blinkit Money first when it appears sufficient, then Cash on Delivery, else opens UPI and generates a QR code."""
     await ctx.ensure_started()
     f = io.StringIO()
     with redirect_stdout(f):
